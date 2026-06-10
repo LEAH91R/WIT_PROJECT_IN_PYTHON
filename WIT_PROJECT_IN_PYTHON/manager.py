@@ -3,6 +3,7 @@ import shutil
 import uuid
 import json
 import filecmp
+import requests
 from datetime import datetime
 from interface import IVersionControl
 
@@ -18,7 +19,8 @@ class WitManager(IVersionControl):
 
     def _get_ignored(self):
         protected_files = {
-            WIT_DIR, ".wit","__pycache__", ".witignore", ".venv", "venv", "wit.py", "manager.py", "interface.py"
+            WIT_DIR, ".wit", "__pycache__", ".witignore", ".venv", "venv", "wit.py", "manager.py", "interface.py",
+            "server"
         }
         if os.path.exists(".witignore"):
             with open(".witignore", "r") as f:
@@ -99,7 +101,6 @@ class WitManager(IVersionControl):
 
         ignored = self._get_ignored()
 
-
         for f in os.listdir('.'):
             if f not in ignored:
                 try:
@@ -110,7 +111,6 @@ class WitManager(IVersionControl):
                 except Exception as e:
                     print(f"Could not delete {f}: {e}")
 
-
         for item in os.listdir(source):
             src_item = os.path.join(source, item)
             if os.path.isfile(src_item):
@@ -119,3 +119,71 @@ class WitManager(IVersionControl):
                 shutil.copytree(src_item, item)
 
         print(f"Successfully switched to commit {commit_id}")
+
+    def _get_current_commit_id(self) -> str:
+        if os.path.exists(METADATA_FILE):
+            with open(METADATA_FILE, "r") as f:
+                data = json.load(f)
+                last_commit = data.get("last_commit")
+                if last_commit:
+                    return last_commit
+        return "manual_run"
+
+    def discover_python_files(self, target_dir: str = ".") -> list:
+        py_files = []
+        ignored = self._get_ignored()
+
+        for root, dirs, files in os.walk(target_dir):
+            dirs[:] = [d for d in dirs if d not in ignored]
+            for file in files:
+                if file.endswith(".py") and file not in ignored:
+                    py_files.append(os.path.join(root, file))
+        return py_files
+
+    def push(self):
+        server_url = "http://127.0.0.1:8000/analyze"
+        commit_id = self._get_current_commit_id()
+
+        print(f"[*] Dispatching CI Pipeline deployment for Commit ID: {commit_id}")
+
+        file_paths = self.discover_python_files()
+        if not file_paths:
+            print("[!] Analysis aborted: No active Python files detected in workspace.")
+            return
+
+        print(f"[*] Packaging {len(file_paths)} project files for transmission...")
+
+        opened_files = []
+        multipart_files = []
+
+        try:
+            for path in file_paths:
+                f = open(path, "rb")
+                opened_files.append(f)
+                multipart_files.append(("files", (os.path.basename(path), f)))
+
+            data_payload = {"commit_id": commit_id}
+
+            print("[*] Streaming repository files to CodeGuard compilation engine...")
+            response = requests.post(server_url, data=data_payload, files=multipart_files)
+
+            if response.status_code == 200:
+                result = response.json()
+                print("\n" + "=" * 40)
+                print("🚀 WIT PUSH & CI COUPLING SUCCESSFUL")
+                print("=" * 40)
+                print(f"Remote Reference : {result['commit_id']}")
+                print(f"Files Processed  : {result['summary']['total_files']}")
+                print(f"Analysis Alerts  : {result['summary']['total_alerts']}")
+                print("-" * 40)
+                print("[*] Operational charts successfully rendered on remote server.")
+                print("=" * 40 + "\n")
+            else:
+                print(f"\n[X] Pipeline Interrupted (Status {response.status_code}): {response.text}")
+
+        except requests.exceptions.ConnectionError:
+            print("\n[X] Linkage Fault: CodeGuard verification server is offline.")
+            print("[*] Please boot up the analysis engine (uvicorn server.main:app).")
+        finally:
+            for f in opened_files:
+                f.close()

@@ -30,5 +30,9 @@ def status():
 def checkout(commit_id):
     wit.checkout(commit_id)
 
+@cli.command()
+def push():
+    wit.push()
+
 if __name__ == "__main__":
     cli()
