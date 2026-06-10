@@ -45,5 +45,6 @@ Ready to try it? Follow this workflow to manage your first file:
 
 ### Step 1: Initialize
 ```bash
+pip install -r requirements.txt
 python wit.py init
 
